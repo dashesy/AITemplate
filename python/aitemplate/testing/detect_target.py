@@ -38,7 +38,7 @@ def _detect_cuda():
         stdout = stdout.decode("utf-8")
         if "A100" in stdout or "RTX 30" in stdout or "A30" in stdout or "A10" in stdout:
             return "80"
-        if "V100" in stdout:
+        if "V100" in stdout and os.environ.get("V100_LEGACY_OPS", None) == "1":
             return "70"            
         if "T4" in stdout:
             if os.environ.get("CI_FLAG", None) == "CIRCLECI":
