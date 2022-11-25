@@ -17,6 +17,7 @@ from typing import Optional
 
 from aitemplate.compiler import ops
 from aitemplate.frontend import nn, Tensor
+from aitemplate.frontend.nn.attention import vanilla_attention
 from aitemplate.testing import detect_target
 
 # pylint: disable=W0102
@@ -48,8 +49,10 @@ class CrossAttention(nn.Module):
         dim_head=64,
         dropout=0.0,
         dtype="float16",
+        use_vanilla=False,
     ):
         super().__init__()
+        self.use_vanilla = use_vanilla or (USE_CUDA and detect_target()._arch in ["70"])
         inner_dim = dim_head * heads
         context_dim = default(context_dim, query_dim)
 
@@ -71,20 +74,41 @@ class CrossAttention(nn.Module):
         layout = "20314" if USE_CUDA else "m2n3"
 
         bs, seqlen, _ = get_shape(x)
-        q = ops.gemm_rcr_permute(shape=(seqlen, 1, nheads), layout=layout)(
-            ops.reshape()(x, [bs * seqlen, -1]), self.to_q_weight.tensor()
-        )
-        context = default(context, x)
+        if self.use_vanilla:
+            q = ops.gemm_rcr()(
+                ops.reshape()(x, [bs * seqlen, -1]), self.to_q_weight.tensor()
+            )
+            context = default(context, x)
 
-        seqlen = get_shape(context)[1]
-        k = ops.gemm_rcr_permute(shape=(seqlen, 1, nheads), layout=layout)(
-            ops.reshape()(context, [bs * seqlen, -1]), self.to_k_weight.tensor()
-        )
-        v = ops.gemm_rcr_permute(shape=(seqlen, 1, nheads), layout=layout)(
-            ops.reshape()(context, [bs * seqlen, -1]), self.to_v_weight.tensor()
-        )
+            seqlen = get_shape(context)[1]
+            k = ops.gemm_rcr()(
+                ops.reshape()(context, [bs * seqlen, -1]), self.to_k_weight.tensor()
+            )
+            v = ops.gemm_rcr()(
+                ops.reshape()(context, [bs * seqlen, -1]), self.to_v_weight.tensor()
+            )
+        else:
+            q = ops.gemm_rcr_permute(shape=(seqlen, 1, nheads), layout=layout)(
+                ops.reshape()(x, [bs * seqlen, -1]), self.to_q_weight.tensor()
+            )
+            context = default(context, x)
 
-        if USE_CUDA:
+            seqlen = get_shape(context)[1]
+            k = ops.gemm_rcr_permute(shape=(seqlen, 1, nheads), layout=layout)(
+                ops.reshape()(context, [bs * seqlen, -1]), self.to_k_weight.tensor()
+            )
+            v = ops.gemm_rcr_permute(shape=(seqlen, 1, nheads), layout=layout)(
+                ops.reshape()(context, [bs * seqlen, -1]), self.to_v_weight.tensor()
+            )
+
+        if self.use_vanilla:
+            out = vanilla_attention(
+                ops.reshape()(q, [bs, -1, nheads, d]),
+                ops.reshape()(k, [bs, -1, nheads, d]),
+                ops.reshape()(v, [bs, -1, nheads, d]),
+                scale=self.scale,
+            )
+        elif USE_CUDA:
             attn_op = ops.mem_eff_attention(causal=False)
             out = attn_op(
                 (ops.reshape()(q, [bs, nheads, -1, d])),
