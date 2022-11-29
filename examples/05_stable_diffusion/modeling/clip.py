@@ -71,8 +71,6 @@ class CrossAttention(nn.Module):
         nheads = self.heads
         d = self.dim_head
 
-        layout = "20314" if USE_CUDA else "m2n3"
-
         bs, seqlen, _ = get_shape(x)
         if self.use_vanilla:
             q = ops.gemm_rcr()(
@@ -88,6 +86,7 @@ class CrossAttention(nn.Module):
                 ops.reshape()(context, [bs * seqlen, -1]), self.to_v_weight.tensor()
             )
         else:
+            layout = "20314" if USE_CUDA else "m2n3"
             q = ops.gemm_rcr_permute(shape=(seqlen, 1, nheads), layout=layout)(
                 ops.reshape()(x, [bs * seqlen, -1]), self.to_q_weight.tensor()
             )

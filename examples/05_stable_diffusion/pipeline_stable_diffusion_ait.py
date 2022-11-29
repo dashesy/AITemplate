@@ -250,6 +250,7 @@ class StableDiffusionAITPipeline(StableDiffusionPipeline):
             return_tensors="pt",
         )
         text_embeddings = self.clip_inference(text_input.input_ids.to(self.device))
+        assert not text_embeddings.isnan().any()
 
         # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
         # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
